@@ -6,13 +6,9 @@ const ROOT = __dirname;
 loadEnv(path.join(ROOT, ".env"));
 
 const PORT = Number(process.env.PORT || 8765);
-const IS_RAILWAY = Boolean(process.env.RAILWAY_ENVIRONMENT_ID);
-const HOST = IS_RAILWAY ? "0.0.0.0" : "127.0.0.1";
 const BASE_URL = (process.env.ANYTHINGLLM_URL || "").replace(/\/+$/, "");
 const API_KEY = process.env.ANYTHINGLLM_API_KEY || "";
 const WORKSPACE_SLUG = process.env.ANYTHINGLLM_WORKSPACE_SLUG || "";
-const WORKSPACE_URL = `${BASE_URL}/api/v1/workspace/${encodeURIComponent(WORKSPACE_SLUG)}`;
-const SETTINGS_LOCATION = IS_RAILWAY ? "Railway Variables" : ".env";
 
 const MAX_JSON_BYTES = 32 * 1024 * 1024;
 const MAX_ATTACHMENTS = 10;
@@ -55,10 +51,6 @@ const server = http.createServer(async (request, response) => {
     return response.end();
   }
 
-  if (request.method === "GET" && request.url === "/healthz") {
-    return sendJson(response, 200, { ok: true });
-  }
-
   if (request.method === "GET" && request.url === "/api/health") {
     return checkAnythingLlm(response);
   }
@@ -79,30 +71,19 @@ async function checkAnythingLlm(response) {
   if (missing.length) {
     return sendJson(response, 503, {
       connected: false,
-      error: `${SETTINGS_LOCATION} 설정이 필요합니다: ${missing.join(", ")}`,
+      error: `.env 설정이 필요합니다: ${missing.join(", ")}`,
     });
   }
 
   try {
-    const upstream = await fetchWithTimeout(WORKSPACE_URL, {
+    const upstream = await fetchWithTimeout(`${BASE_URL}/api/v1/auth`, {
       headers: { Authorization: `Bearer ${API_KEY}` },
     }, 15_000);
 
     if (!upstream.ok) {
       return sendJson(response, 503, {
         connected: false,
-        error: upstream.status === 404
-          ? "워크스페이스 slug를 확인해 주세요."
-          : authError(upstream.status),
-      });
-    }
-
-    const { workspace } = await upstream.json();
-    const workspaces = Array.isArray(workspace) ? workspace : [workspace];
-    if (!workspaces.some((item) => item?.slug === WORKSPACE_SLUG)) {
-      return sendJson(response, 503, {
-        connected: false,
-        error: "워크스페이스 slug를 확인해 주세요.",
+        error: authError(upstream.status),
       });
     }
 
@@ -119,7 +100,7 @@ async function chat(request, response) {
   const missing = missingSettings();
   if (missing.length) {
     return sendJson(response, 503, {
-      error: `${SETTINGS_LOCATION} 설정이 필요합니다: ${missing.join(", ")}`,
+      error: `.env 설정이 필요합니다: ${missing.join(", ")}`,
     });
   }
 
@@ -149,7 +130,9 @@ async function chat(request, response) {
       payload.attachments = attachments;
     }
 
-    const upstream = await fetchWithTimeout(`${WORKSPACE_URL}/chat`, {
+    const endpoint =
+      `${BASE_URL}/api/v1/workspace/${encodeURIComponent(WORKSPACE_SLUG)}/chat`;
+    const upstream = await fetchWithTimeout(endpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${API_KEY}`,
@@ -797,6 +780,6 @@ server.on("error", (error) => {
   process.exit(1);
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`식물 관찰 학습: http://${HOST}:${PORT}`);
+server.listen(PORT, "127.0.0.1", () => {
+  console.log(`식물 관찰 학습: http://127.0.0.1:${PORT}`);
 });
